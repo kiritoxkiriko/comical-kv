@@ -5,7 +5,7 @@ import (
 )
 
 // Cache is an LRU cache. It is not safe for concurrent access
-type Cache struct {
+type Cache[T Value] struct {
 	// maxBytes is the maximum memory the cache can use
 	maxBytes int64
 	// nBytes is the current memory the cache is using
@@ -15,12 +15,12 @@ type Cache struct {
 	// cache is a map that maps a key to a list element
 	cache map[string]*list.Element
 	// OnEvicted is a callback function called when a key is evicted
-	onEvicted func(key string, value Value)
+	onEvicted func(key string, value T)
 }
 
-type entry struct {
+type entry[T Value] struct {
 	key   string
-	value Value
+	value T
 }
 
 type Value interface {
@@ -29,8 +29,8 @@ type Value interface {
 }
 
 // New is the constructor of Cache
-func New(maxBytes int64, onEvicted func(string, Value)) *Cache {
-	return &Cache{
+func New[T Value](maxBytes int64, onEvicted func(string, T)) *Cache[T] {
+	return &Cache[T]{
 		maxBytes:  maxBytes,
 		ll:        list.New(),
 		cache:     make(map[string]*list.Element),
@@ -38,27 +38,27 @@ func New(maxBytes int64, onEvicted func(string, Value)) *Cache {
 	}
 }
 
-func (c *Cache) Get(key string) (value Value, ok bool) {
+func (c *Cache[T]) Get(key string) (value T, ok bool) {
 	// get elem from map
 	if elem, ok := c.cache[key]; ok {
 		// move elem to front
 		c.ll.MoveToFront(elem)
 		// get entry
-		ent := elem.Value.(*entry)
+		ent := elem.Value.(*entry[T])
 		// return val
 		return ent.value, true
 	}
 	return
 }
 
-func (c *Cache) RemoveOldest() {
+func (c *Cache[T]) RemoveOldest() {
 	// get oldest
 	elem := c.ll.Back()
 	// if ll not empty
 	if elem != nil {
 		// remove from ll
 		c.ll.Remove(elem)
-		ent := elem.Value.(*entry)
+		ent := elem.Value.(*entry[T])
 		// remove from map
 		delete(c.cache, ent.key)
 		// deduct byte
@@ -69,21 +69,22 @@ func (c *Cache) RemoveOldest() {
 	}
 }
 
-func (c *Cache) Add(key string, value Value) {
+func (c *Cache[T]) Add(key string, value T) {
 	if elem, ok := c.cache[key]; ok {
 		// move to front of ll
 		c.ll.MoveToFront(elem)
-		ent := elem.Value.(*entry)
+		ent := elem.Value.(*entry[T])
 		// add byte diff
 		c.nBytes += int64(value.Len() - ent.value.Len())
 		// update val
 		ent.value = value
 	} else {
 		// set elem
-		elem = c.ll.PushFront(&entry{
+		elem = c.ll.PushFront(&entry[T]{
 			key:   key,
 			value: value,
 		})
+		c.cache[key] = elem
 		// add byte
 		c.nBytes += int64(value.Len() + len(key))
 	}
@@ -91,4 +92,8 @@ func (c *Cache) Add(key string, value Value) {
 	for c.maxBytes != 0 && c.maxBytes < c.nBytes {
 		c.RemoveOldest()
 	}
+}
+
+func (c *Cache[T]) Len() int {
+	return c.ll.Len()
 }
