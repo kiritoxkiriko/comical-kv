@@ -1,4 +1,4 @@
-package main
+package comical_kv
 
 // ByteView holds an immutable view of bytes
 type ByteView struct {
@@ -24,6 +24,6 @@ func (bv ByteView) String() string {
 // cloneBytes returns a copy of the byte slice
 func cloneBytes(b []byte) []byte {
 	c := make([]byte, len(b))
-	copy(b, c)
+	copy(c, b)
 	return c
 }

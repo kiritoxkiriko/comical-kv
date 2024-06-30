@@ -1,4 +1,4 @@
-package main
+package comical_kv
 
 import (
 	"sync"
@@ -8,7 +8,9 @@ import (
 
 // cache is a thread-safe cache that holds ByteView, a wrapper for lru.Cache
 type cache struct {
-	lock       sync.RWMutex
+	// lock is a mutex to protect the cache
+	// NOTE: cannot use sync.RWMutex because get and add are not atomic
+	lock       sync.Mutex
 	lru        *lru.Cache[ByteView]
 	cacheBytes int64
 }
@@ -26,8 +28,8 @@ func (c *cache) add(key string, value ByteView) {
 
 // get returns a value from the cache
 func (c *cache) get(key string) (value ByteView, ok bool) {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	// if not init just return
 	if c.lru == nil {
 		return
