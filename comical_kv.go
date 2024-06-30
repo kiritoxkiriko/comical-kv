@@ -69,7 +69,7 @@ func (g *Group) Get(key string) (ByteView, error) {
 	}
 	// get from cache
 	if v, ok := g.cache.get(key); ok {
-		log.Println("[Comical KV] hit cache")
+		log.Println("[Comical-KV] hit cache")
 		return v, nil
 	}
 	// get from getter
