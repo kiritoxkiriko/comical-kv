@@ -2,14 +2,20 @@ package comical_kv
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
+	"sync"
 
 	"github.com/kiritoxkiriko/comical"
+
+	"github.com/kiritoxkiriko/comical-kv/consistent_hash"
 )
 
 const (
 	DefaultBasePath = "/_comical-kv/"
+	DefaultReplica  = 50
 )
 
 // HTTPPool is a pool of HTTP servers
@@ -20,6 +26,12 @@ type HTTPPool struct {
 	basePath string
 	// engine comical http engine
 	engine *comical.Engine
+	// lock guards peers and httpGetters
+	lock sync.Mutex
+	// peers consistent hash map
+	peers *consistent_hash.Map
+	// httpGetters http getter map
+	httpGetters map[string]*httpGetter
 }
 
 // NewHTTPPool creates a new HTTPPool
@@ -79,4 +91,49 @@ func (p *HTTPPool) registerRoute() {
 // ServeHTTP serves the HTTPPool
 func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.engine.ServeHTTP(w, r)
+}
+
+func (p *HTTPPool) Set(peers ...string) {
+	// acquire lock
+	p.lock.Lock()
+	defer p.lock.Unlock()
+
+	p.peers = consistent_hash.New(DefaultReplica, nil)
+}
+
+var (
+	// check implementation
+	_ PeerGetter = (*httpGetter)(nil)
+)
+
+type httpGetter struct {
+	baseUrl string
+}
+
+func (h *httpGetter) Get(group, key string) ([]byte, error) {
+	// parse url use url parser
+	u, err := url.Parse(h.baseUrl)
+	if err != nil {
+		return nil, err
+	}
+	// add path param use join path
+	u.JoinPath(group, key)
+	res, err := http.Get(u.String())
+	if err != nil {
+		return nil, err
+	}
+
+	// check status code
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned: %v", res.Status)
+	}
+
+	// read body
+	defer res.Body.Close()
+	bytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response body: %w", err)
+	}
+
+	return bytes, nil
 }
