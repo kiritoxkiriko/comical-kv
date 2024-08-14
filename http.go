@@ -14,8 +14,10 @@ import (
 )
 
 const (
+	// DefaultBasePath is the default base path of the HTTPPool
 	DefaultBasePath = "/_comical-kv/"
-	DefaultReplica  = 50
+	// DefaultReplica is the default replica count of the HTTPPool
+	DefaultReplica = 50
 )
 
 // HTTPPool is a pool of HTTP servers
@@ -27,7 +29,7 @@ type HTTPPool struct {
 	// engine comical http engine
 	engine *comical.Engine
 	// lock guards peers and httpGetters
-	lock sync.Mutex
+	lock sync.RWMutex
 	// peers consistent hash map
 	peers *consistent_hash.Map
 	// httpGetters http getter map
@@ -93,12 +95,36 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.engine.ServeHTTP(w, r)
 }
 
+// Set sets the peers of the HTTPPool
 func (p *HTTPPool) Set(peers ...string) {
 	// acquire lock
 	p.lock.Lock()
 	defer p.lock.Unlock()
-
+	// create a consistent-hash map
 	p.peers = consistent_hash.New(DefaultReplica, nil)
+	p.peers.Add(peers...)
+	// create http getter map
+	p.httpGetters = make(map[string]*httpGetter, len(peers))
+	for _, peer := range peers {
+		p.httpGetters[peer] = &httpGetter{baseUrl: peer + p.basePath}
+	}
+}
+
+// PickPeer picks a peer for a key
+func (p *HTTPPool) PickPeer(key string) (PeerGetter, bool) {
+	// acquire lock
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+	// if no peers, return false
+	if p.peers == nil {
+		return nil, false
+	}
+	// pick a peer
+	peer := p.peers.Get(key)
+	if peer == "" || peer == p.self {
+		return nil, false
+	}
+	return p.httpGetters[peer], true
 }
 
 var (
@@ -106,10 +132,13 @@ var (
 	_ PeerGetter = (*httpGetter)(nil)
 )
 
+// httpGetter is a Getter that gets data from an HTTP server
 type httpGetter struct {
+	// baseUrl is the base URL of the HTTP server
 	baseUrl string
 }
 
+// Get gets data from an HTTP server
 func (h *httpGetter) Get(group, key string) ([]byte, error) {
 	// parse url use url parser
 	u, err := url.Parse(h.baseUrl)

@@ -27,6 +27,8 @@ type Group struct {
 	getter Getter
 	// cache is the cache of the group
 	cache cache
+	// peers is the PeerPicker of the group
+	peers PeerPicker
 }
 
 var (
@@ -76,9 +78,40 @@ func (g *Group) Get(key string) (ByteView, error) {
 	return g.load(key)
 }
 
+// RegisterPeers registers a PeerPicker for a group
+func (g *Group) RegisterPeers(peers PeerPicker) {
+	if g.peers != nil {
+		panic("peers already registered")
+	}
+	g.peers = peers
+}
+
 // load loads a value for a key from a group
 func (g *Group) load(key string) (value ByteView, err error) {
+	// if peers are registered, get from peers
+	if g.peers != nil {
+		// if a peer is found, get from peer
+		if peer, ok := g.peers.PickPeer(key); ok {
+			// get a value from a peer (remote)
+			if value, err = g.getFromPeer(peer, key); err == nil {
+				return
+			}
+			// if failed to get from peer, log error
+			log.Println("[Comical-KV] failed to get from peer", err)
+		}
+	}
+	// fallback to get from local
 	return g.getLocally(key)
+}
+
+// getFromPeer gets a value for a key from a peer
+func (g *Group) getFromPeer(peer PeerGetter, key string) (value ByteView, err error) {
+	bytes, err := peer.Get(g.name, key)
+	if err != nil {
+		return ByteView{}, err
+	}
+	value = ByteView{b: bytes}
+	return
 }
 
 // getLocally gets a value for a key from a group's getter
